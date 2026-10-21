@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "id_prefix": "OPP",
+  "platforms": {
+    "Linux": "lin",
+    "Windows": "win",
+    "macOS": "mac",
+    "IaaS": "iaas",
+    "Office Suite": "office",
+    "Identity Provider": "idp",
+    "SaaS": "saas",
+    "ESXi": "esxi",
+    "Network Devices": "net",
+    "Containers": "cont"
+  },
+  "core_fields": {
+    "Title": {
+      "type": "single",
+      "required": true
+    },
+    "Status": {
+      "type": "single",
+      "required": true,
+      "values": [
+        "Active",
+        "Retired"
+      ]
+    },
+    "Contributors": {
+      "type": "list",
+      "required": true
+    },
+    "Platforms": {
+      "type": "list",
+      "required": true
+    },
+    "Tactics": {
+      "type": "list",
+      "required": false
+    },
+    "Techniques": {
+      "type": "list",
+      "required": false
+    },
+    "Procedures": {
+      "type": "list",
+      "required": false
+    }
+  },
+  "providers": {
+    "Preventative": {
+      "template": "coverage-template.md",
+      "fields": {}
+    }
+  }
+}
