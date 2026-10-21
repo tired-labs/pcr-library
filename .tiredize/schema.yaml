@@ -1,0 +1,53 @@
+# Markdown schema for coverage records.
+#
+# Validates the section structure of records/<id>/README.md and of the
+# templates they are created from.
+#
+# Usage:
+#   tiredize --markdown-schema .tiredize/schema.yaml <record>.md
+#
+# This checks section structure only. Metadata values -- record type,
+# platforms, provider, and the fields a provider requires -- depend on this
+# repository's configuration and are checked by the validator instead:
+#   python3 tools/index.py validate
+
+enforce_order: true
+allow_extra_sections: false
+
+sections:
+  - pattern: ".+"
+    level: 1
+    sections:
+
+      - name: "Metadata"
+        level: 2          
+
+      - name: "Overview"
+        level: 2
+
+      - name: "Coverage Specifics"
+        level: 2
+        sections:
+          - name: "Sample Raw Event(s)"
+            level: 3
+            required: false
+        
+      - name: "Known Benign Events"
+        level: 2
+        required: false
+
+      - name: "Existing Controls"
+        level: 2
+
+      - name: "Known Gaps"
+        level: 2
+        
+      - name: "Long-Term Considerations"
+        level: 2
+
+      - name: "Engineer Notes"
+        level: 2
+        required: false
+
+      - name: "References"
+        level: 2

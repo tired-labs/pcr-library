@@ -1,0 +1,7 @@
+# Structural linter for coverage record markdown. Pinned to a commit so that
+# every contributor and every CI run checks against the same rules. Update
+# this deliberately -- see docs/DEPLOYMENT.md.
+#
+# NOTE: update this SHA to a build that includes the allow_subsections and
+# bare-link fixes before relying on the shipped schema.
+tiredize @ git+https://github.com/tired-labs/tiredize.git@7380a85

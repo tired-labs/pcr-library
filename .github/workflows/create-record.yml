@@ -1,0 +1,90 @@
+# Creates a working branch with a new, pre-populated coverage record.
+#
+# INSTANCES OVERRIDE THIS FILE. Workflow inputs are static YAML, so an
+# integration cannot contribute a dropdown at runtime. An instance that needs
+# provider-specific inputs (an Anvilogic domain, say) adds them to the inputs
+# block below and keeps its own copy of this file.
+#
+# To keep that divergence cheap, every input is forwarded verbatim to
+# create_record.py as JSON, which passes them to the provider's
+# on_record_created hook. The run step therefore needs no changes when inputs
+# are added, and porting an upstream fix means copying the steps and keeping
+# your own inputs block.
+name: Create New Record
+run-name: Creating a new ${{ inputs.record_type }} record
+
+on:
+  # Manual runs are the only kind: this workflow has no automatic trigger.
+  # Pick the record type and provider; it scaffolds the record on a new
+  # record/<timestamp> branch, which you then fill in and open a pull request
+  # from. Nothing is written to main.
+  workflow_dispatch:
+    inputs:
+      record_type:
+        description: 'Type of record to create'
+        required: true
+        type: choice
+        options:
+          - Coverage
+          - Gap
+          - Opportunity
+      provider:
+        description: 'Provider supplying the coverage (leave blank for Gap and Opportunity)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  create-record:
+    # Instances using self-hosted runners will need to change this.
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out repo
+      uses: actions/checkout@v7
+
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.11'
+
+    # Integrations declare their own dependencies in
+    # local/integrations/<slug>/requirements.txt. Core installs whatever it
+    # finds, so adding a provider never means editing a workflow.
+    - name: Install provider dependencies
+      run: python3 tools/install_provider_deps.py
+
+    - name: Create the record
+      id: create
+      # ---------------------------------------------------------------
+      # PROVIDER CREDENTIALS -- known override point.
+      #
+      # GitHub will not let a workflow enumerate `secrets`, so core cannot
+      # forward credentials it does not know the names of. Add each
+      # provider's secrets here in your own copy of this file, and expect to
+      # re-add them when you port an upstream change. See docs/DEPLOYMENT.md.
+      #
+      #   PROVIDER_API_KEY: ${{ secrets.PROVIDER_API_KEY }}
+      #   PROVIDER_API_URL: "https://provider.com"
+      # ---------------------------------------------------------------
+      env:
+        # Lets a hook build a link back to the record it was given.
+        REPO_URL: ${{ github.server_url }}/${{ github.repository }}/blob/main/
+      run: |
+        python3 tools/create_record.py \
+          --type "${{ inputs.record_type }}" \
+          ${{ inputs.provider && format('--provider "{0}"', inputs.provider) || '' }} \
+          --options '${{ toJSON(inputs) }}'
+
+    - name: Push the working branch
+      run: |
+        branch="record/$(date -u +%Y%m%d-%H%M%S)"
+        git config --local user.email "Records-Bot@users.noreply.github.com"
+        git config --local user.name "Records-Bot"
+        git checkout -b "${branch}"
+        git add records/
+        git commit -m "Scaffold new ${{ inputs.record_type }} record"
+        git push origin "${branch}"
+        echo "Created branch ${branch}"
+        echo "### New record branch: \`${branch}\`" >> "$GITHUB_STEP_SUMMARY"

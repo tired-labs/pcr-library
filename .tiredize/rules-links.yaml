@@ -1,0 +1,29 @@
+# Link-checking rules, run on a schedule rather than on pull requests.
+#
+# This file deliberately contains ONLY the links rule. Tiredize enables just
+# the rules named in a config file, so nothing here duplicates rules.yaml --
+# style rules live there and run on every pull request, and link checking
+# lives here and runs weekly.
+#
+# See .github/workflows/link-check.yml.
+
+links:
+  validate: true
+  timeout: 10
+
+  # Some sites reject requests that do not look like a browser.
+  headers:
+    User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
+
+  # Many sites return 403 or 429 to automated requests even though the link is
+  # perfectly good, and there is no way to tell that apart from a genuine
+  # permissions wall. Treating them as valid trades a rare miss for a large
+  # reduction in false alarms.
+  valid_status_codes:
+    - 2xx
+    - 3xx
+    - 403
+    - 429
+
+  # Internal hosts a runner cannot resolve. Supports * wildcards.
+  exclude: []

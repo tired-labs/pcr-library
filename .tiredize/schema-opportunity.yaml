@@ -1,0 +1,24 @@
+# Markdown schema for OPPORTUNITY records.
+#
+# Opportunity records use their own sections: they describe what could be
+# detected, so the coverage sections -- Coverage Specifics, Existing Controls,
+# Known Gaps -- have nothing to hold. Coverage and gap records use schema.yaml.
+# lint.yml chooses between the two by each record's Type.
+
+enforce_order: true
+allow_extra_sections: false
+
+sections:
+  - pattern: ".+"
+    level: 1
+    sections:
+      - name: "Metadata"
+        level: 2
+      - name: "Overview"
+        level: 2
+      - name: "Opportunity"
+        level: 2
+      - name: "Considerations"
+        level: 2
+      - name: "References"
+        level: 2

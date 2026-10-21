@@ -1,0 +1,17 @@
+# EXAMPLE dependency declaration. Copy to requirements.txt in your own
+# integration directory.
+#
+# Core installs this automatically: every workflow that might call a hook runs
+# tools/install_provider_deps.py, which picks up
+# local/integrations/*/requirements.txt. Adding a provider never means editing
+# a workflow, and core never learns the name of a vendor package.
+#
+# A vendor library vendored alongside this file installs from its path,
+# provided it ships a pyproject.toml or setup.py:
+#
+#     ./local/integrations/<slug>/<package>
+#
+# Anything else pip understands works too:
+#
+#     requests>=2.32
+#     some-sdk @ git+https://github.com/vendor/sdk.git@<sha>

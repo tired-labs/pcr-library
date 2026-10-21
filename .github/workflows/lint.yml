@@ -1,0 +1,107 @@
+name: Lint and validate records
+run-name: Checking ${{ github.head_ref }} on PR creation/modification
+
+on:
+  # RUN MANUALLY: lints and validates every record on the chosen branch, not
+  # just changed ones -- a whole-repository check, useful after changing the
+  # configuration, the schema, or the Tiredize version. It changes nothing,
+  # and calls no provider.
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Read-only. This workflow changes nothing, so it is safe to run as many times
+# as GitHub triggers it, and it can run on every commit a PR ever has --
+# including commits pushed by the provider sync workflow. That is what makes it
+# a trustworthy required status check: it always reports on the PR's current
+# head. Anything that writes -- calling providers, committing -- lives in
+# provider-sync.yml.
+permissions:
+  contents: read
+
+jobs:
+  lint_and_validate:
+    # Instances using self-hosted runners will need to change this.
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out repo
+      uses: actions/checkout@v7
+      with:
+        # Full history so the base commit is available to diff against.
+        fetch-depth: 0
+        # The exact commit this run reports on. A branch name could move on
+        # mid-run, and the status must describe the commit it is attached to.
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+    - name: Get list of record markdown files changed in PR
+      id: changed
+      run: |
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          # Deliberately not using a third-party action here. Many
+          # organizations restrict which actions may run, and git can do this
+          # unaided.
+          files=$(git diff --name-only --diff-filter=ACMR \
+            "${{ github.event.pull_request.base.sha }}" \
+            "${{ github.event.pull_request.head.sha }}" \
+            -- 'records/**/README.md' | tr '\n' ' ')
+        else
+          files=""
+        fi
+        echo "files=${files}" >> "$GITHUB_OUTPUT"
+        if [ -n "${files}" ]; then
+          echo "any_changed=true" >> "$GITHUB_OUTPUT"
+          echo "Changed records: ${files}"
+        else
+          echo "any_changed=false" >> "$GITHUB_OUTPUT"
+          echo "No record markdown files changed."
+        fi
+
+    - name: Set up Python
+      if: steps.changed.outputs.any_changed == 'true' ||  github.event_name == 'workflow_dispatch'
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.11'
+
+    # Tiredize is a Python package, not an action, so it is unaffected by any
+    # restriction on which actions may run. The version is pinned in
+    # .tiredize/requirements.txt.
+    - name: Install Tiredize
+      if: steps.changed.outputs.any_changed == 'true' ||  github.event_name == 'workflow_dispatch'
+      run: pip install -r .tiredize/requirements.txt
+
+    # Integrations declare their own dependencies in
+    # local/integrations/<slug>/requirements.txt. Core installs whatever it
+    # finds, so adding a provider never means editing a workflow.
+    - name: Install provider dependencies
+      if: steps.changed.outputs.any_changed == 'true' ||  github.event_name == 'workflow_dispatch'
+      run: python3 tools/install_provider_deps.py
+
+    # Structural checks: section structure and style. Each record is linted
+    # against the schema for its type -- opportunity records have their own
+    # sections -- so this goes through tools/lint_records.py rather than
+    # calling tiredize directly.
+    - name: Lint changed records
+      if: steps.changed.outputs.any_changed == 'true'
+      run: |
+        python3 tools/lint_records.py ${{ steps.changed.outputs.files }}
+
+    - name: Lint all records
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        python3 tools/lint_records.py \
+          $(find records templates local/templates -name '*.md' 2>/dev/null)
+
+    # Semantic checks: values legal for this repository and its providers,
+    # including any provider validate_record hook. Validation is pure -- it
+    # never calls a provider's platform or writes anything -- so it belongs
+    # here. The provider's on_record_changed hook does neither of those
+    # things, and runs in provider-sync.yml.
+    - name: Validate changed records
+      if: steps.changed.outputs.any_changed == 'true'
+      run: |
+        python3 tools/index.py validate --show-entry \
+          -f ${{ steps.changed.outputs.files }}
+
+    - name: Validate all records against repository config
+      if: github.event_name == 'workflow_dispatch'
+      run: python3 tools/index.py validate --show-entry

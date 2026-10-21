@@ -1,0 +1,8 @@
+# NOTE: local/ is deliberately NOT ignored. It holds this instance's
+# configuration, templates, and integrations, all of which must be committed
+# for the workflows to use them.
+.vscode
+*.exe
+**/__pycache__
+*.pyc
+*.egg-info/

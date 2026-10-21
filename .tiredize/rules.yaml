@@ -1,0 +1,35 @@
+# Style rules for coverage records, run on every pull request.
+#
+# Link checking lives in rules-links.yaml and runs weekly instead: link rot is
+# a maintenance problem, and a record should not fail review because a
+# third-party site was down that morning.
+
+line_length:
+  maximum_length: 80
+  exclude:
+    - table
+    - reference_definition
+    - code_block
+    - code_inline
+    - link_reference
+
+tabs:
+  allowed: false
+
+trailing_whitespace:
+  allowed: false
+
+# Unicode is permitted in prose but not in headers, where it tends to arrive
+# by accident from copied text.
+unicode:
+  allowed: true
+  exclude:
+    - header
+
+# Links must be reference-style, which keeps prose readable and long URLs out
+# of the body text. See docs/STYLE-GUIDE.md.
+elements:
+  disallow:
+    - link_inline
+    - autolink_extended
+    - autolink

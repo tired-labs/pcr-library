@@ -1,0 +1,176 @@
+name: Sync provider state
+run-name: Syncing provider state for ${{ github.head_ref }}
+
+# Runs each changed record's provider on_record_changed hook, then commits
+# anything the provider wrote -- synced rule logic, for instance -- back to
+# the PR branch.
+#
+# This is deliberately separate from lint.yml. That workflow is read-only and
+# serves as the required status check; this one writes. Keeping them apart is
+# what lets every commit on a PR be linted, including the ones this workflow
+# pushes:
+#
+#   * Commits are pushed with the GitHub App token, not GITHUB_TOKEN. App
+#     pushes trigger workflows normally, so lint.yml runs on the new head and
+#     the PR's status always describes its current commit. GITHUB_TOKEN pushes
+#     either trigger nothing -- leaving the check stuck on an old commit -- or
+#     are held for manual approval.
+#
+#   * No commit carries [skip ci]. A squash merge concatenates every commit
+#     message on the branch, so a [skip ci] anywhere in the PR would reach
+#     main and suppress merge.yml's push trigger, skipping the reindex.
+#
+# To stop this workflow re-running on its own commit, it checks who wrote the
+# PR's head commit and does nothing if it was this workflow.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  # No manual trigger, on purpose. Everything this workflow does is relative
+  # to a pull request -- which records changed, which branch to commit to -- so
+  # a manual run would have nothing to act on. To run it again, re-run it from
+  # the pull request's Checks tab, or push a commit.
+  #
+  # No paths filter, on purpose. If this is a required check, a filtered-out
+  # run never reports, and the PR waits on it forever. Changed records are
+  # detected inside the job instead.
+
+# The workflow token only reads. Every write goes through the App token.
+permissions:
+  contents: read
+
+env:
+  # The identity this workflow commits as. The loop guard below matches on
+  # this email, so both read it from here.
+  BOT_NAME: Records-Bot
+  BOT_EMAIL: Records-Bot@users.noreply.github.com
+
+# One sync per PR at a time. Not cancelled when a newer commit arrives: a
+# provider hook may be part-way through deploying to its platform.
+concurrency:
+  group: provider-sync-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  provider_sync:
+    # Secrets are unavailable to PRs from forks, and a fork's branch cannot be
+    # pushed to, so there is nothing this workflow could do for one.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    # Instances using self-hosted runners will need to change this.
+    runs-on: ubuntu-latest
+    steps:
+    - name: Generate GitHub App Token
+      id: app-token
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ secrets.GH_APP_CLIENT_ID }}
+        private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+    - name: Check out the PR head
+      uses: actions/checkout@v7
+      with:
+        # The exact commit this run was triggered for.
+        ref: ${{ github.event.pull_request.head.sha }}
+        # Full history so the base commit is available to diff against.
+        fetch-depth: 0
+        # Persisted for the push at the end, so it goes out as the App.
+        token: ${{ steps.app-token.outputs.token }}
+
+    # The loop guard. If this workflow wrote the head commit, the provider
+    # state is already in sync with it -- running again could only produce
+    # the same commit.
+    - name: Skip this workflow's own commits
+      id: gate
+      run: |
+        author=$(git log -1 --format='%ae' HEAD)
+        if [ "${author}" = "${BOT_EMAIL}" ]; then
+          echo "run=false" >> "$GITHUB_OUTPUT"
+          echo "Head commit was written by this workflow; nothing to sync."
+        else
+          echo "run=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Get list of record markdown files changed in PR
+      id: changed
+      if: steps.gate.outputs.run == 'true'
+      run: |
+        files=$(git diff --name-only --diff-filter=ACMR \
+          "${{ github.event.pull_request.base.sha }}" HEAD \
+          -- 'records/**/README.md' | tr '\n' ' ')
+        echo "files=${files}" >> "$GITHUB_OUTPUT"
+        if [ -n "${files}" ]; then
+          echo "any_changed=true" >> "$GITHUB_OUTPUT"
+          echo "Changed records: ${files}"
+        else
+          echo "any_changed=false" >> "$GITHUB_OUTPUT"
+          echo "No record markdown files changed; nothing to sync."
+        fi
+
+    - name: Set up Python
+      if: steps.changed.outputs.any_changed == 'true'
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.11'
+
+    # Integrations declare their own dependencies in
+    # local/integrations/<slug>/requirements.txt. Core installs whatever it
+    # finds, so adding a provider never means editing a workflow.
+    - name: Install provider dependencies
+      if: steps.changed.outputs.any_changed == 'true'
+      run: python3 tools/install_provider_deps.py
+
+    # review validates every record first and refuses to call any provider
+    # unless all of them passed, so a provider is never handed a record that
+    # lint.yml is about to reject.
+    - name: Run provider hooks for changed records
+      if: steps.changed.outputs.any_changed == 'true'
+      # ---------------------------------------------------------------
+      # PROVIDER CREDENTIALS -- known override point.
+      #
+      # GitHub will not let a workflow enumerate `secrets`, so core cannot
+      # forward credentials it does not know the names of. Add each
+      # provider's secrets here in your own copy of this file, and expect to
+      # re-add them when you port an upstream change. See docs/DEPLOYMENT.md.
+      #
+      #   PROVIDER_API_KEY: ${{ secrets.PROVIDER_API_KEY }}
+      #   PROVIDER_API_URL: "https://provider.com"
+      # ---------------------------------------------------------------
+      env:
+        # Lets a hook build a link back to the record it was given.
+        REPO_URL: ${{ github.server_url }}/${{ github.repository }}/blob/main/
+      run: |
+        python3 tools/index.py review --show-entry \
+          -f ${{ steps.changed.outputs.files }}
+
+    - name: Commit and push anything a provider wrote
+      if: steps.changed.outputs.any_changed == 'true'
+      # Branch names are chosen by whoever pushes them, so the name reaches
+      # the script through the environment -- never interpolated into it,
+      # where a crafted name would run as shell.
+      env:
+        HEAD_REF: ${{ github.head_ref }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        if [ -z "$(git status --porcelain)" ]; then
+          echo "Providers made no changes; nothing to commit."
+          exit 0
+        fi
+        git config --local user.name "${BOT_NAME}"
+        git config --local user.email "${BOT_EMAIL}"
+        git add -A
+        # No [skip ci]: this commit must be linted like any other, and the
+        # tag would ride a squash merge onto main and suppress the reindex.
+        git commit -m "Sync provider state for changed records"
+
+        # A newer commit may have landed on the branch while this ran. Its own
+        # run will sync it, so losing this push is harmless -- report that
+        # rather than failing the check.
+        if ! git push origin "HEAD:refs/heads/${HEAD_REF}"; then
+          git fetch origin "${HEAD_REF}"
+          if [ "$(git rev-parse FETCH_HEAD)" != "${HEAD_SHA}" ]; then
+            echo "The branch moved on while this ran; the run for the newer commit will sync it."
+            exit 0
+          fi
+          echo "::error::Push failed, and the branch has not moved -- check the App's permissions."
+          exit 1
+        fi
