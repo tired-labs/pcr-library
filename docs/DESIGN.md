@@ -267,6 +267,21 @@ provider tells "never deployed" from "already live" without inferring it from
 the ID. An earlier version of this design left providers to guess, and the
 guess only worked because of the order two workflow steps happened to run in.
 
+The context also carries `context.options` — the create workflow's or a task's
+inputs, forwarded verbatim — and `context.branch` with `context.branch_url`:
+the working branch the record is on. The create workflow chooses and checks
+the branch name before scaffolding, so `on_record_created` is told the exact
+name that will be pushed; during review, `on_record_changed` is told the pull
+request's head branch. Elsewhere — at merge, in tasks, in validation — there is
+no working branch and both are `None`. Core values and user input are kept
+apart on purpose: `context.options['branch_name']` is whatever was typed, or
+blank, while `context.branch` is the name in GitHub.
+
+That is what lets a provider correlate an object it creates with the record
+describing it before the record has an ID: record `context.branch` on the
+platform side (a label, a link in a description), then replace it with the
+record's ID in `on_record_merged`, since the branch is deleted after merge.
+
 A repository with no integrations runs the same code path with every hook
 absent. Core never imports an integration and never needs to know one exists.
 

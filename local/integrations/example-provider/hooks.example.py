@@ -111,7 +111,7 @@ def validate_record(record, path, content, config, context):
     return errors
 
 
-def on_record_created(path, record_type, provider, options, config):
+def on_record_created(path, record_type, config, context):
     """Called after a record has been scaffolded from its template.
 
     Use this to do whatever your provider needs when new coverage is started:
@@ -121,12 +121,23 @@ def on_record_created(path, record_type, provider, options, config):
     Arguments:
         path         path to the new record's README.md
         record_type  "Coverage" (gap records never reach here)
-        provider     the Provider value that dispatched to this module
-        options      dict of the create workflow's inputs. Core forwards every
-                     input verbatim, so you can add dropdowns to your copy of
-                     create-record.yml and read them here without core needing
-                     to know they exist.
         config       the parsed local/config.json
+        context      what core knows about this call:
+                       context.provider    the Provider value that
+                                           dispatched to this module
+                       context.options     dict of the create workflow's
+                                           inputs. Core forwards every input
+                                           verbatim, so you can add dropdowns
+                                           to your copy of create-record.yml
+                                           and read them here without core
+                                           needing to know they exist.
+                       context.branch      the branch the record is about to
+                                           be pushed to: the final, checked
+                                           name, always set by the workflow.
+                                           None when the script is run by
+                                           hand without --branch.
+                       context.branch_url  that branch's GitHub URL, or None
+                                           outside GitHub Actions.
 
     Returns:
         A list of paths for any COMPANION records you created, or None. Core
@@ -136,9 +147,9 @@ def on_record_created(path, record_type, provider, options, config):
     Raise or sys.exit() on failure. Core does not swallow errors here, and a
     half-created record is worse than a failed create.
     """
-    # Inputs from your copy of the create workflow arrive in `options`.
-    # Validate them rather than trusting the form.
-    widget = options.get('example_widget')
+    # Inputs from your copy of the create workflow arrive in
+    # `context.options`. Validate them rather than trusting the form.
+    widget = context.options.get('example_widget')
     if widget and widget not in ("alpha", "beta"):
         sys.exit(f"Unrecognized widget: {widget}")
 
@@ -156,6 +167,18 @@ def on_record_created(path, record_type, provider, options, config):
 
     with open(path, "w") as f:
         f.write(document)
+
+    # To find a new platform object's record again before it merges, record
+    # the branch on the platform side -- in a label, tag, or description. Use
+    # context.branch rather than the branch_name input: the input is whatever
+    # was typed, or blank, while context.branch is the name actually pushed.
+    #
+    #     if context.branch:
+    #         my_platform.add_tag(new_id, f"branch:{context.branch}")
+    #         my_platform.set_notes(new_id, f"In review: {context.branch_url}")
+    #
+    # The branch is deleted after merge, so on_record_merged is the place to
+    # replace it with the record's permanent ID.
 
     # If this provider needs more than one record for a single piece of
     # coverage, create the companions here. Placeholder IDs 0-9 are available;

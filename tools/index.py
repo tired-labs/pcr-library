@@ -291,6 +291,14 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        '-b', '--branch',
+        help=(
+            "In 'review', the pull request's head branch, passed to the "
+            "provider's on_record_changed hook in context.branch."
+        )
+    )
+
+    parser.add_argument(
         '--show-entry', action='store_true',
         help=(
             "In 'validate' and 'review', print the index entry each record "
@@ -403,7 +411,8 @@ if __name__ == "__main__":
                 records_lib.PLACEHOLDER_PREFIX
             )
             context = records_lib.HookContext(
-                event="changed", is_new=is_new, provider=provider
+                event="changed", is_new=is_new, provider=provider,
+                branch=args.branch,
             )
 
             print(f"Running {provider} on_record_changed hook for {path}.")
