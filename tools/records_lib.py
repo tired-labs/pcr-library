@@ -4,6 +4,7 @@
 import json
 import os
 import re
+from urllib.parse import quote
 
 ##############################################################################
 ############################## GLOBAL VARIABLES ##############################
@@ -68,17 +69,42 @@ class HookContext:
     copies here would only create two ways to reach the same object.
     """
 
-    def __init__(self, event, is_new=False, options=None, provider=None):
+    def __init__(self, event, is_new=False, options=None, provider=None,
+                 branch=None):
         self.event = event              # created | changed | merged | validate
         self.is_new = is_new            # never deployed before
         self.options = options or {}    # create workflow / task inputs
         self.provider = provider        # the value that dispatched here
 
+        # The working branch the record lives on: the branch the create
+        # workflow is about to push, or the pull request's head branch during
+        # review. None where there is no such branch -- at merge, in a task,
+        # during validation, or when a script is run by hand without one.
+        #
+        # This is the final, checked name, never the raw workflow input, so a
+        # provider can record it and rely on it matching the branch in GitHub.
+        self.branch = branch or None
+        self.branch_url = branch_url(self.branch)
+
     def __repr__(self):
         return (
             f"HookContext(event={self.event!r}, is_new={self.is_new}, "
-            f"provider={self.provider!r})"
+            f"provider={self.provider!r}, branch={self.branch!r})"
         )
+
+
+def branch_url(branch):
+    """Return the GitHub URL of a branch, or None if it cannot be built.
+
+    Built from the variables GitHub Actions sets on every run, so it is None
+    when a script is run locally, unless those are exported by hand.
+    """
+    server = os.environ.get("GITHUB_SERVER_URL")
+    repository = os.environ.get("GITHUB_REPOSITORY")
+    if not (branch and server and repository):
+        return None
+
+    return f"{server}/{repository}/tree/{quote(branch, safe='/')}"
 
 
 class ConfigError(Exception):

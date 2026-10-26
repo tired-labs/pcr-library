@@ -34,7 +34,8 @@ flow, and this repository ships no example records.
 ## Working with records
 
 Run the **Create New Record** workflow from the Actions tab to scaffold a record
-on a working branch, fill it in, and open a pull request. Structure, style, and
+on a working branch (name it, or leave the name blank for a generated one),
+fill it in, and open a pull request. Structure, style, and
 metadata are all checked automatically; see the [Style Guide] for the
 conventions, and check your work locally before opening the PR:
 

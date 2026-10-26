@@ -298,9 +298,15 @@ category — add them to the `inputs` block of
 
 To keep that divergence cheap, the workflow forwards **all** of its inputs to
 `create_record.py` as JSON, which passes them to the provider's
-`on_record_created` hook. The run step therefore never changes when you add
-inputs, and porting an upstream fix means copying the steps and keeping your own
-inputs block.
+`on_record_created` hook in `context.options`. The run step therefore never
+changes when you add inputs, and porting an upstream fix means copying the steps
+and keeping your own inputs block.
+
+The workflow's `branch_name` input names the branch the record is created on;
+left blank, it is `record/<UTC timestamp>`. The name is checked before anything
+is created — an invalid name, or one that already exists, fails the run rather
+than being rewritten — and the hook receives it in `context.branch`, so a
+provider can label what it creates with the branch that holds its record.
 
 ## 7. Set up the GitHub App
 

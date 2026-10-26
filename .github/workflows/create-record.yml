@@ -7,17 +7,17 @@
 #
 # To keep that divergence cheap, every input is forwarded verbatim to
 # create_record.py as JSON, which passes them to the provider's
-# on_record_created hook. The run step therefore needs no changes when inputs
-# are added, and porting an upstream fix means copying the steps and keeping
-# your own inputs block.
+# on_record_created hook in context.options. The run step therefore needs no
+# changes when inputs are added, and porting an upstream fix means copying the
+# steps and keeping your own inputs block.
 name: Create New Record
 run-name: Creating a new ${{ inputs.record_type }} record
 
 on:
   # Manual runs are the only kind: this workflow has no automatic trigger.
   # Pick the record type and provider; it scaffolds the record on a new
-  # record/<timestamp> branch, which you then fill in and open a pull request
-  # from. Nothing is written to main.
+  # branch, which you then fill in and open a pull request from. Nothing is
+  # written to main.
   workflow_dispatch:
     inputs:
       record_type:
@@ -32,6 +32,10 @@ on:
         description: 'Provider supplying the coverage (leave blank for Gap and Opportunity)'
         required: false
         type: string
+      branch_name:
+        description: 'Branch to create (leave blank for record/<timestamp>)'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -43,6 +47,43 @@ jobs:
     steps:
     - name: Check out repo
       uses: actions/checkout@v7
+
+    # The branch is settled before anything else happens, because the
+    # provider's hook is told its name and may record it on the provider's
+    # side -- to link a new detection back to the branch holding its record.
+    # The name chosen here is the one pushed, unchanged. An invalid name is
+    # rejected rather than rewritten, so the name you type is the name you get
+    # in GitHub and in the provider.
+    #
+    # Inputs reach every script through the environment, never interpolated
+    # into it, where a crafted value would run as shell.
+    - name: Choose the branch name
+      id: branch
+      env:
+        REQUESTED: ${{ inputs.branch_name }}
+      run: |
+        if [ -n "${REQUESTED}" ]; then
+          branch="${REQUESTED}"
+        else
+          branch="record/$(date -u +%Y%m%d-%H%M%S)"
+        fi
+
+        # Checked as a full ref so that shorthand such as @{-1} is never
+        # expanded. Rejects spaces, control characters, and the other
+        # characters git does not allow. A leading '-' passes that check but
+        # would be read as an option by every git command it is given to.
+        if [[ "${branch}" == -* ]] || ! git check-ref-format "refs/heads/${branch}"; then
+          echo "::error::The requested branch name is not a valid git branch name. Use letters, digits, '-', '_', '.' and '/'; no spaces."
+          exit 1
+        fi
+
+        if git ls-remote --exit-code --heads origin "refs/heads/${branch}" >/dev/null; then
+          echo "::error::A branch named ${branch} already exists. Choose another name, or leave it blank for a generated one."
+          exit 1
+        fi
+
+        echo "name=${branch}" >> "$GITHUB_OUTPUT"
+        echo "Records will be created on ${branch}."
 
     - name: Set up Python
       uses: actions/setup-python@v7
@@ -71,20 +112,28 @@ jobs:
       env:
         # Lets a hook build a link back to the record it was given.
         REPO_URL: ${{ github.server_url }}/${{ github.repository }}/blob/main/
+        RECORD_TYPE: ${{ inputs.record_type }}
+        PROVIDER: ${{ inputs.provider }}
+        BRANCH: ${{ steps.branch.outputs.name }}
+        OPTIONS: ${{ toJSON(inputs) }}
       run: |
-        python3 tools/create_record.py \
-          --type "${{ inputs.record_type }}" \
-          ${{ inputs.provider && format('--provider "{0}"', inputs.provider) || '' }} \
-          --options '${{ toJSON(inputs) }}'
+        args=(--type "${RECORD_TYPE}" --branch "${BRANCH}" --options "${OPTIONS}")
+        if [ -n "${PROVIDER}" ]; then
+          args+=(--provider "${PROVIDER}")
+        fi
+        python3 tools/create_record.py "${args[@]}"
 
     - name: Push the working branch
+      env:
+        RECORD_TYPE: ${{ inputs.record_type }}
+        BRANCH: ${{ steps.branch.outputs.name }}
+        BRANCH_URL: ${{ github.server_url }}/${{ github.repository }}/tree/${{ steps.branch.outputs.name }}
       run: |
-        branch="record/$(date -u +%Y%m%d-%H%M%S)"
         git config --local user.email "Records-Bot@users.noreply.github.com"
         git config --local user.name "Records-Bot"
-        git checkout -b "${branch}"
+        git checkout -b "${BRANCH}"
         git add records/
-        git commit -m "Scaffold new ${{ inputs.record_type }} record"
-        git push origin "${branch}"
-        echo "Created branch ${branch}"
-        echo "### New record branch: \`${branch}\`" >> "$GITHUB_STEP_SUMMARY"
+        git commit -m "Scaffold new ${RECORD_TYPE} record"
+        git push origin "${BRANCH}"
+        echo "Created branch ${BRANCH}"
+        echo "### New record branch: [\`${BRANCH}\`](${BRANCH_URL})" >> "$GITHUB_STEP_SUMMARY"

@@ -138,8 +138,11 @@ jobs:
       env:
         # Lets a hook build a link back to the record it was given.
         REPO_URL: ${{ github.server_url }}/${{ github.repository }}/blob/main/
+        # Handed to the hook in context.branch. Through the environment for
+        # the same reason as in the commit step below.
+        HEAD_REF: ${{ github.head_ref }}
       run: |
-        python3 tools/index.py review --show-entry \
+        python3 tools/index.py review --show-entry --branch "${HEAD_REF}" \
           -f ${{ steps.changed.outputs.files }}
 
     - name: Commit and push anything a provider wrote

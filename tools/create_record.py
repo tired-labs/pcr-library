@@ -34,9 +34,22 @@ if __name__ == "__main__":
         '-o', '--options', default="{}",
         help=(
             "JSON object of extra options, passed through to the provider's "
-            "on_record_created hook. The create workflow forwards its own "
-            "inputs here, so an integration can collect whatever it needs "
-            "without the core script knowing about those fields."
+            "on_record_created hook in context.options. The create workflow "
+            "forwards its own inputs here, so an integration can collect "
+            "whatever it needs without the core script knowing about those "
+            "fields."
+        )
+    )
+
+    parser.add_argument(
+        '-b', '--branch',
+        help=(
+            "The working branch the new record will be pushed to. The create "
+            "workflow chooses and checks this name before calling the script, "
+            "and passes it on to the provider's on_record_created hook in "
+            "context.branch so the provider can record where the record "
+            "lives. Omit it when running by hand with no branch in mind; the "
+            "hook then receives None."
         )
     )
 
@@ -86,10 +99,14 @@ if __name__ == "__main__":
 
     if hook:
         print(f"Running {args.provider} on_record_created hook.")
+        context = records_lib.HookContext(
+            event="created", is_new=True, options=options,
+            provider=args.provider, branch=args.branch,
+        )
         try:
             extra = hook(
-                path=created[0], record_type=args.type,
-                provider=args.provider, options=options, config=config,
+                path=created[0], record_type=args.type, config=config,
+                context=context,
             )
         except Exception as e:
             sys.exit(f"{args.provider} on_record_created hook failed: {e}")
